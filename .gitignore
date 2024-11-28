@@ -1,0 +1,6 @@
+.env
+__pycache__/
+jobs.db
+resetJobLinksTable.py
+jobLinkFunctions.py
+seedJobWebsitesTable.py
