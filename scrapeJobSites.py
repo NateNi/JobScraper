@@ -17,17 +17,17 @@ def scrape_table_entries(websiteId, url, company, channel, containerXpath, title
     previouslySentLinksResults = cursor.fetchall()
     previouslySentLinks = [row[0] for row in previouslySentLinksResults]
     # Get the list of new jobs from the given website (returns as a list of dictionaries with keys for job title and job links)
-    jobs = getLinks(websiteId, url, previouslySentLinks, containerXpath, titleXpath, linkXpath, titleAttribute)
+    jobs = getLinks(websiteId, company, url, previouslySentLinks, containerXpath, titleXpath, linkXpath, titleAttribute)
     conn.close()
     if (len(jobs)):
         send_message(jobs, company, channel)
 
-def getLinks(websiteId, url, previouslySentLinks, containerXpath, titleXpath, linkXpath, titleAttribute):
+def getLinks(websiteId, company, url, previouslySentLinks, containerXpath, titleXpath, linkXpath, titleAttribute):
     jobs = []
     driver = webdriver.Chrome()
     driver.get(url)
     # Wait for the JavaScript content to load
-    time.sleep(4)
+    time.sleep(5)
     conn = sqlite3.connect('jobs.db')
     cursor = conn.cursor()
     cursor.execute('''CREATE TABLE IF NOT EXISTS jobWebsiteFilters (id INTEGER PRIMARY KEY, jobWebsiteId INT, filterXpath VARCHAR, selectValue VARCHAR, type VARCHAR)''')
@@ -39,15 +39,21 @@ def getLinks(websiteId, url, previouslySentLinks, containerXpath, titleXpath, li
             case 'select':
                 select = Select(driver.find_element(By.XPATH, filter['filterXpath']))
                 select.select_by_value(filter['selectValue'])
-                time.sleep(4)
+                time.sleep(5)
     conn.close()
 
     jobContainers = driver.find_elements(By.XPATH, containerXpath)
     for option in jobContainers:
         try:
-            titleElement = option.find_element(By.XPATH, titleXpath) if titleXpath else option
-            title = titleElement.get_attribute(titleAttribute) if titleAttribute else titleElement.text
-            link = option.find_element(By.XPATH, linkXpath).get_attribute('href') if linkXpath else option.get_attribute('href')
+            if (titleXpath):
+                titleElement = option.find_element(By.XPATH, titleXpath) if titleXpath else option
+                title = titleElement.get_attribute(titleAttribute) if titleAttribute else titleElement.text
+            else:
+                title = f'New {company} Job'
+            if (linkXpath):
+                link = option.find_element(By.XPATH, linkXpath).get_attribute('href') if linkXpath else option.get_attribute('href')
+            else:
+                link = url
             if len(previouslySentLinks) == 0 or link not in previouslySentLinks:
                 jobs.append({'title': title, 'link': link})
         except NoSuchElementException:
