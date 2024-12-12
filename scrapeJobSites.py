@@ -9,20 +9,11 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import Select
 
 def scrape_table_entries(websiteId, url, company, channel, containerXpath, titleXpath, linkXpath, titleAttribute):
-    # Get the previously saved job links so that links will not be sent repeatedly
-    conn = sqlite3.connect('jobs.db')
-    cursor = conn.cursor()
-    cursor.execute('''CREATE TABLE IF NOT EXISTS jobLinks (id INTEGER PRIMARY KEY, links VARCHAR, UNIQUE(links))''')
-    cursor.execute("SELECT links FROM jobLinks")
-    previouslySentLinksResults = cursor.fetchall()
-    previouslySentLinks = [row[0] for row in previouslySentLinksResults]
-    # Get the list of new jobs from the given website (returns as a list of dictionaries with keys for job title and job links)
-    jobs = getLinks(websiteId, company, url, previouslySentLinks, containerXpath, titleXpath, linkXpath, titleAttribute)
-    conn.close()
+    jobs = getLinks(websiteId, company, url, channel, containerXpath, titleXpath, linkXpath, titleAttribute)
     if (len(jobs)):
-        send_message(jobs, company, channel)
+        send_message(jobs, company, channel, websiteId)
 
-def getLinks(websiteId, company, url, previouslySentLinks, containerXpath, titleXpath, linkXpath, titleAttribute):
+def getLinks(websiteId, company, url, channel, containerXpath, titleXpath, linkXpath, titleAttribute):
     jobs = []
     driver = webdriver.Chrome()
     driver.get(url)
@@ -46,22 +37,30 @@ def getLinks(websiteId, company, url, previouslySentLinks, containerXpath, title
     for option in jobContainers:
         try:
             if (titleXpath):
-                titleElement = option.find_element(By.XPATH, titleXpath) if titleXpath else option
+                titleElement = option.find_element(By.XPATH, titleXpath)
                 title = titleElement.get_attribute(titleAttribute) if titleAttribute else titleElement.text
             else:
                 title = f'New {company} Job'
             if (linkXpath):
-                link = option.find_element(By.XPATH, linkXpath).get_attribute('href') if linkXpath else option.get_attribute('href')
+                link = option.find_element(By.XPATH, linkXpath).get_attribute('href')
             else:
                 link = url
-            if len(previouslySentLinks) == 0 or link not in previouslySentLinks:
+            conn = sqlite3.connect('jobs.db')
+            cursor = conn.cursor()
+            cursor.execute('''CREATE TABLE IF NOT EXISTS jobLinks (id INTEGER PRIMARY KEY, link VARCHAR, title VARCHAR, jobWebsiteId INTEGER)''')
+            cursor.execute(f"SELECT id FROM jobLinks where title = '{title}' and jobWebsiteId = '{websiteId}' ")
+            
+            previouslySentLinkResults = cursor.fetchall()
+            conn.close()
+            previouslySentLinks = [row[0] for row in previouslySentLinkResults]    
+            if len(previouslySentLinks) == 0:
                 jobs.append({'title': title, 'link': link})
         except NoSuchElementException:
             print("Element not found")
     driver.quit()
     return jobs
 
-def send_message(jobs, company, channel):
+def send_message(jobs, company, channel, websiteId):
     # Create a Slack Web API client
     slack_client = WebClient(token=os.getenv('SLACK_TOKEN'))
     # Send the message to the specified channel
@@ -73,8 +72,8 @@ def send_message(jobs, company, channel):
         # Add links to the jobLinks table
         conn = sqlite3.connect('jobs.db')
         cursor = conn.cursor()
-        for link in (job['link'] for job in jobs):
-            cursor.execute(f"INSERT OR IGNORE INTO jobLinks(links) VALUES('{link}')")
+        for job in jobs:
+            cursor.execute(f"INSERT OR IGNORE INTO jobLinks(link, title, jobWebsiteId) VALUES('{job['link']}', '{job['title']}', '{websiteId}')")
         conn.commit()
         conn.close()
     else:
